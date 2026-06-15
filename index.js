@@ -1,4 +1,4 @@
-// index.js（櫻花版）
+// index.js（櫻花版 + 完整 chat 統計）
 
 const BTN_ID = "wtc-toggle-btn";
 const PANEL_ID = "wtc-panel";
@@ -32,7 +32,7 @@ const SAKURA_SVG = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg
   </g>
 </svg>`;
 
-// ── 注入全域 CSS 動畫 ──
+// ── 注入全域 CSS ──
 function injectStyles() {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
@@ -57,45 +57,42 @@ function injectStyles() {
     #${BTN_ID} {
       position: fixed;
       z-index: 999999;
-      width: 52px;
-      height: 52px;
-      border-radius: 50%;
-      border: 2px solid rgba(255,183,197,0.45);
-      background: radial-gradient(circle at 40% 35%, rgba(255,220,230,0.85), rgba(255,150,180,0.55));
-      backdrop-filter: blur(6px);
+      width: 44px;
+      height: 44px;
+      border: none;
+      background: transparent;
       cursor: grab;
       user-select: none;
       padding: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      animation: wtc-breathe 3s ease-in-out infinite;
-      transition: transform 0.25s ease, border-color 0.3s ease;
+      filter: drop-shadow(0 0 8px rgba(255,150,180,0.5)) drop-shadow(0 2px 6px rgba(0,0,0,0.25));
+      transition: transform 0.25s ease, filter 0.3s ease;
       -webkit-tap-highlight-color: transparent;
       touch-action: none;
     }
     #${BTN_ID}:hover {
-      transform: scale(1.13);
-      border-color: rgba(255,130,170,0.7);
+      transform: scale(1.15);
+      filter: drop-shadow(0 0 14px rgba(255,150,180,0.85)) drop-shadow(0 2px 8px rgba(0,0,0,0.3));
     }
     #${BTN_ID}.wtc-dragging {
       cursor: grabbing;
-      opacity: 0.82;
-      transform: scale(1.18);
-      animation: none;
-      box-shadow: 0 0 28px 10px rgba(255,150,180,0.5), 0 8px 28px rgba(0,0,0,0.25);
+      opacity: 0.85;
+      transform: scale(1.2);
+      filter: drop-shadow(0 0 18px rgba(255,150,180,0.9)) drop-shadow(0 4px 10px rgba(0,0,0,0.35));
     }
     #${BTN_ID} .wtc-sakura-icon {
-      width: 36px;
-      height: 36px;
-      animation: wtc-spin 8s linear infinite;
+      width: 44px;
+      height: 44px;
+      animation: wtc-spin 6s linear infinite;
       pointer-events: none;
     }
     #${BTN_ID}:hover .wtc-sakura-icon {
-      animation-duration: 3s;
+      animation-duration: 2.5s;
     }
     #${BTN_ID}.wtc-dragging .wtc-sakura-icon {
-      animation-duration: 1.5s;
+      animation-duration: 1.2s;
     }
     #${PANEL_ID} {
       position: fixed;
@@ -107,8 +104,11 @@ function injectStyles() {
       background: linear-gradient(135deg, rgba(40,20,30,0.82), rgba(60,25,45,0.78));
       backdrop-filter: blur(14px);
       color: #fff;
-      font-size: 12px;
-      line-height: 1.4;
+      font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", "Heiti TC", sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.5;
+      letter-spacing: 0.5px;
       box-shadow: 0 12px 36px rgba(0,0,0,0.35), 0 0 16px rgba(255,150,180,0.15);
       animation: wtc-fade-in 0.3s ease-out;
     }
@@ -120,7 +120,7 @@ function injectStyles() {
       margin-bottom: 8px;
     }
     #${PANEL_ID} .wtc-title {
-      font-weight: 800;
+      font-weight: 700;
       font-size: 13px;
       color: #FFD6E0;
       text-shadow: 0 0 8px rgba(255,150,180,0.4);
@@ -137,6 +137,7 @@ function injectStyles() {
       background: rgba(255,150,180,0.12);
       color: #FFD6E0;
       cursor: pointer;
+      font-family: inherit;
       font-size: 12px;
       font-weight: 700;
       transition: background 0.2s, border-color 0.2s;
@@ -195,27 +196,45 @@ function removeLegacyPanels() {
   if (oldStyle) oldStyle.remove();
 }
 
-// ── 統計邏輯（不動） ──
-function getMessagesText() {
-  const mesEls = document.querySelectorAll(".mes");
-  if (mesEls && mesEls.length) {
-    return [...mesEls]
-      .map((m) => (m.querySelector(".mes_text")?.innerText || "").trim())
-      .filter(Boolean);
-  }
+// ── 取得完整 chat 陣列（優先 SillyTavern context） ──
+function getChatArray() {
+  try {
+    const st = window.SillyTavern || (typeof SillyTavern !== "undefined" ? SillyTavern : null);
+    if (st && typeof st.getContext === "function") {
+      const ctx = st.getContext();
+      if (ctx && Array.isArray(ctx.chat)) return ctx.chat;
+    }
+  } catch (e) { /* ignore */ }
 
-  const msgEls =
-    document.querySelectorAll(".chat_message, .message, .mes_text") || [];
-  return [...msgEls]
-    .map((n) => (n?.innerText || n?.textContent || "").trim())
-    .filter(Boolean);
+  if (Array.isArray(window.chat)) return window.chat;
+
+  return [];
 }
 
-function computeTotals() {
-  const texts = getMessagesText();
+// ── 統計邏輯（嚴格按使用者指定公式） ──
+function computeStats() {
+  const chat = getChatArray();
+
+  let totalMsgs = 0;
+  let userChars = 0;
+  let aiChars = 0;
+
+  for (const m of chat) {
+    if (!m || typeof m !== "object") continue;
+    const text = String(m.mes || "");
+    const len = text.length;
+    if (!text.trim()) continue;
+
+    totalMsgs += 1;
+    if (m.is_user === true) userChars += len;
+    else aiChars += len;
+  }
+
   return {
-    messageCount: texts.length,
-    totalChars: texts.reduce((s, t) => s + t.length, 0),
+    totalChars: userChars + aiChars,
+    totalMsgs,
+    userChars,
+    aiChars,
   };
 }
 
@@ -245,10 +264,8 @@ function setPanelVisible(visible) {
   if (!panel || !btn) return;
 
   if (visible) {
-    // 根據按鈕位置決定面板展開方向
     updatePanelPosition();
     panel.style.display = "block";
-    // 點擊時噴花瓣
     const rect = btn.getBoundingClientRect();
     spawnFallingPetals(rect.left + rect.width / 2, rect.top + rect.height / 2, 6);
   } else {
@@ -263,21 +280,18 @@ function updatePanelPosition() {
 
   const btnRect = btn.getBoundingClientRect();
   const panelW = 230;
-  const panelH = 120;
+  const panelH = 150;
   const margin = 8;
 
-  // 垂直方向：優先在按鈕上方
   let top = btnRect.top - panelH - margin;
   if (top < 10) {
     top = btnRect.bottom + margin;
   }
 
-  // 水平方向：以按鈕中心對齊面板中心，但不超出螢幕
   let left = btnRect.left + btnRect.width / 2 - panelW / 2;
   if (left < 10) left = 10;
   if (left + panelW > window.innerWidth - 10) left = window.innerWidth - panelW - 10;
 
-  // 使用 left/top 而非 right/bottom，因為按鈕可拖動到任意位置
   panel.style.left = left + "px";
   panel.style.top = top + "px";
   panel.style.right = "auto";
@@ -289,10 +303,12 @@ function renderTotals() {
   const body = document.getElementById(BODY_ID);
   if (!body) return;
 
-  const { messageCount, totalChars } = computeTotals();
+  const { totalChars, totalMsgs, userChars, aiChars } = computeStats();
   body.innerHTML =
-    `<div>🌸 訊息數：<b>${messageCount}</b></div>` +
-    `<div>🌸 總字符：<b>${totalChars}</b></div>`;
+    `<div>整體字數：<b>${totalChars}</b></div>` +
+    `<div>訊息筆數：<b>${totalMsgs}</b></div>` +
+    `<div>使用者字數：<b>${userChars}</b></div>` +
+    `<div>AI字數：<b>${aiChars}</b></div>`;
 }
 
 // ── 讀取/儲存按鈕位置 ──
@@ -301,7 +317,6 @@ function loadBtnPos() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const pos = JSON.parse(raw);
-      // 驗證位置在視窗範圍內
       if (
         typeof pos.left === "number" &&
         typeof pos.top === "number" &&
@@ -312,7 +327,6 @@ function loadBtnPos() {
       }
     }
   } catch (e) { /* ignore */ }
-  // 預設位置：右下角
   return { left: window.innerWidth - 68, top: window.innerHeight - 68 };
 }
 
@@ -326,7 +340,6 @@ function saveBtnPos(left, top) {
 function ensureUI() {
   injectStyles();
 
-  // ── 按鈕 ──
   let btn = document.getElementById(BTN_ID);
   if (!btn) {
     btn = document.createElement("div");
@@ -337,14 +350,12 @@ function ensureUI() {
     iconWrap.innerHTML = SAKURA_SVG;
     btn.appendChild(iconWrap);
 
-    // 設定初始位置
     const pos = loadBtnPos();
     btn.style.left = pos.left + "px";
     btn.style.top = pos.top + "px";
 
     document.body.appendChild(btn);
 
-    // ── 拖動邏輯 ──
     let isDragging = false;
     let dragStartX, dragStartY, btnStartX, btnStartY;
     let hasMoved = false;
@@ -377,7 +388,6 @@ function ensureUI() {
       let newLeft = btnStartX + dx;
       let newTop = btnStartY + dy;
 
-      // 邊界檢測
       const maxLeft = window.innerWidth - btn.offsetWidth;
       const maxTop = window.innerHeight - btn.offsetHeight;
       newLeft = Math.max(0, Math.min(newLeft, maxLeft));
@@ -386,7 +396,6 @@ function ensureUI() {
       btn.style.left = newLeft + "px";
       btn.style.top = newTop + "px";
 
-      // 拖動中同步更新面板位置
       const panel = document.getElementById(PANEL_ID);
       if (panel && panel.style.display !== "none") {
         updatePanelPosition();
@@ -398,10 +407,8 @@ function ensureUI() {
       isDragging = false;
       btn.classList.remove("wtc-dragging");
 
-      // 儲存位置
       saveBtnPos(btn.offsetLeft, btn.offsetTop);
 
-      // 如果沒有移動 → 視為點擊 → 切換面板
       if (!hasMoved) {
         const panel = document.getElementById(PANEL_ID);
         if (panel) {
@@ -412,31 +419,27 @@ function ensureUI() {
       }
     }
 
-    // 滑鼠事件
     btn.addEventListener("mousedown", onPointerDown);
     document.addEventListener("mousemove", onPointerMove);
     document.addEventListener("mouseup", onPointerUp);
 
-    // 觸控事件
     btn.addEventListener("touchstart", onPointerDown, { passive: false });
     document.addEventListener("touchmove", onPointerMove, { passive: false });
     document.addEventListener("touchend", onPointerUp);
   }
 
-  // ── 面板 ──
   let panel = document.getElementById(PANEL_ID);
   if (!panel) {
     panel = document.createElement("div");
     panel.id = PANEL_ID;
     panel.style.display = "none";
 
-    // Header
     const header = document.createElement("div");
     header.className = "wtc-header";
 
     const title = document.createElement("div");
     title.className = "wtc-title";
-    title.textContent = "🌸 本窗口統計";
+    title.textContent = "字數統計";
 
     const actions = document.createElement("div");
     actions.className = "wtc-actions";
@@ -446,7 +449,6 @@ function ensureUI() {
     refresh.textContent = "更新";
     refresh.addEventListener("click", () => {
       renderTotals();
-      // 更新時也噴花瓣
       const btnEl = document.getElementById(BTN_ID);
       if (btnEl) {
         const rect = btnEl.getBoundingClientRect();
@@ -473,10 +475,16 @@ function ensureUI() {
     panel.appendChild(body);
 
     document.body.appendChild(panel);
+
+    document.addEventListener("click", (e) => {
+      if (panel.style.display === "none") return;
+      if (panel.contains(e.target) || btn.contains(e.target)) return;
+      setPanelVisible(false);
+    });
   }
 }
 
-// ── 巨集指令（不動） ──
+// ── 巨集指令（保留 /windowstats） ──
 function registerMacro() {
   const tryRegister = () => {
     const ms = window?.macros?.registry;
