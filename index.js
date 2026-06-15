@@ -501,8 +501,8 @@ function registerMacro() {
   }, 1000);
 }
 
-// ✅ 酒館會呼叫這個
-export function init() {
+// ✅ 酒館入口（jQuery ready）
+jQuery(async () => {
   try {
     removeLegacyPanels();
     ensureUI();
@@ -511,4 +511,4 @@ export function init() {
   } catch (e) {
     console.error("[Window Total Counter 🌸] init failed", e);
   }
-}
+});
