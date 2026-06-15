@@ -1,12 +1,12 @@
 ﻿{
   "display_name": "Window Total Counter",
   "loading_order": 50,
-  "dependencies": [],
+  "requires": [],
+  "optional": [],
   "js": "index.js",
   "css": "",
-  "author": "local",
-  "version": "1.0.0",
-  "homePage": "",
-  "auto_update": false,
-  "minimum_client_version": "1.0.0"
+  "author": "ttbbaby60803",
+  "version": "1.2.0",
+  "homePage": "https://github.com/ttbbaby60803/WindowTotalCounter",
+  "auto_update": true
 }
